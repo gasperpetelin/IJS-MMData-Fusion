@@ -3,14 +3,15 @@ from platypus import Mutation, copy, Real, random, default_variator, RandomGener
     HypervolumeFitnessEvaluator, AttributeDominance, AbstractGeneticAlgorithm, fitness_key, TournamentSelector
 
 
-class TestMut(Mutation):
-    def __init__(self, n, k, m, p, probability=1):
-        super(TestMut, self).__init__()
+class AdamLocalSearch(Mutation):
+    def __init__(self, n, k, m, p, probability=1, steps = 200):
+        super(AdamLocalSearch, self).__init__()
         self.probability = probability
         self.n=n
         self.k=k
         self.m=m
         self.p=p
+        self.steps = steps
 
     def mutate(self, parent):
         child = copy.deepcopy(parent)
@@ -21,13 +22,13 @@ class TestMut(Mutation):
             probability /= float(len([t for t in problem.types if isinstance(t, Real)]))
 
         if random.uniform(0.0, 1.0) <= self.probability:
-            print("is_mutated")
+            #print("is_mutated")
             x = np.array(child.variables)
 
             G = x[0:self.n * self.k].reshape((self.n, self.k))
             Ss = x[(self.n * self.k):].reshape((self.m, self.k, self.k))
 
-            c, newG, newS = self.p.new_weights(G, Ss, steps=300)
+            c, newG, newS = self.p.new_weights(G, Ss, steps=self.steps)
             con = np.concatenate((newG.flatten(), newS.flatten()), axis=0)
             child.variables = con.tolist()
 
@@ -116,8 +117,8 @@ class IBEA(AbstractGeneticAlgorithm):
 
 
 
-        #while len(self.population) > self.population_size:
-        #    self.fitness_evaluator.remove(self.population, self._find_worst())
+        while len(self.population) > self.population_size:
+            self.fitness_evaluator.remove(self.population, self._find_worst())
 
     def _find_worst(self):
         index = 0

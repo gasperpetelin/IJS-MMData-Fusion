@@ -2,6 +2,11 @@ import numpy as np
 import tensorflow as tf
 
 
+#Tu se zna pojaviti težava, kjer se computational graph preveč
+# napolni iz starimi informacijami in se program sesuje.
+# Ta varianta dela hitreje kot, če bi v vsakem koraku izdelali nov session, vendar se občasno sesuje
+
+
 class GDProblem:
     def __init__(self, m, n, k):
         self.m, self.n, self.k = m, n, k
