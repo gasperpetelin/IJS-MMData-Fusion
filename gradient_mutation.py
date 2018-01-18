@@ -1,17 +1,48 @@
 import numpy as np
 from platypus import Mutation, copy, Real, random, default_variator, RandomGenerator, \
-    HypervolumeFitnessEvaluator, AttributeDominance, AbstractGeneticAlgorithm, fitness_key, TournamentSelector
+    HypervolumeFitnessEvaluator, AttributeDominance, AbstractGeneticAlgorithm, fitness_key, TournamentSelector, Variator
+
+
+class CustomVariator(Variator):
+    def __init__(self, m, n, k, crossover_rate=0.1, step_size=0.5):
+        super(CustomVariator, self).__init__(2)
+        self.crossover_rate = crossover_rate
+        self.step_size = step_size
+        self.m, self.n, self.k = m, n, k
+
+
+    def evolve(self, parents):
+        result = copy.deepcopy(parents[0])
+        G1 = np.array(parents[0].variables)[0:self.n * self.k].reshape((self.n, self.k))
+        Ss1 = np.array(parents[0].variables)[(self.n * self.k):].reshape((self.m, self.k, self.k))
+
+        G2 = np.array(parents[1].variables)[0:self.n * self.k].reshape((self.n, self.k))
+        Ss2 = np.array(parents[1].variables)[(self.n * self.k):].reshape((self.m, self.k, self.k))
+
+        newG = np.zeros(G1.shape)
+
+        from_G1 = 0
+
+        for i in range(G1.shape[0]):
+            bit = bool(random.getrandbits(1))
+            from_G1+=int(bit)
+            newG[i,:] = (G1[i, :] if bit else G2[i,:])
+
+        if from_G1 < G1.shape[0]/2:
+            result.variables = list(np.concatenate((newG.flatten(), Ss1.flatten()), axis=0))
+        else:
+            result.variables = list(np.concatenate((newG.flatten(), Ss2.flatten()), axis=0))
+        return [result]
+
 
 
 class AdamLocalSearch(Mutation):
-    def __init__(self, n, k, m, p, probability=1, steps = 200):
+    def __init__(self, p, reshaper, probability=1, steps=100):
         super(AdamLocalSearch, self).__init__()
         self.probability = probability
-        self.n=n
-        self.k=k
-        self.m=m
-        self.p=p
+        self.p = p
         self.steps = steps
+        self.reshaper = reshaper
 
     def mutate(self, parent):
         child = copy.deepcopy(parent)
@@ -22,30 +53,17 @@ class AdamLocalSearch(Mutation):
             probability /= float(len([t for t in problem.types if isinstance(t, Real)]))
 
         if random.uniform(0.0, 1.0) <= self.probability:
-            #print("is_mutated")
-            x = np.array(child.variables)
+            G, Ss = self.reshaper.vec2mat(child.variables)
 
-            G = x[0:self.n * self.k].reshape((self.n, self.k))
-            Ss = x[(self.n * self.k):].reshape((self.m, self.k, self.k))
-
-            c, newG, newS = self.p.new_weights(G, Ss, steps=self.steps)
-            con = np.concatenate((newG.flatten(), newS.flatten()), axis=0)
+            c, newG, newS = self.p.adam(G, Ss, self.steps)
+            con = self.reshaper.mat2vec(newG, newS)
             child.variables = con.tolist()
 
-
-            #cost, gradG, gradS = self.p.cost_grad(newG, newS)
-
-            #print(c, cost, child.variables[:5])
-
-            #child.objectives=[cost]
-            child.evaluated = False
-
-            #child.objectives=[cost]
+            child.objectives = [c]
+            child.evaluated = True
 
         return child
 
-    def um_mutation(self, x, lb, ub):
-        return random.uniform(lb, ub)
 
 class IBEA(AbstractGeneticAlgorithm):
     def __init__(self, problem,
@@ -90,35 +108,26 @@ class IBEA(AbstractGeneticAlgorithm):
         print("mutation")
         offspring = [self.mutator.mutate(x) for x in offspring]
 
-
-
-
-
-
-
-
-
         self.evaluate_all(offspring)
 
-
-
         self.population.extend(offspring)
-        #self.evaluate_all(self.population)
         self.fitness_evaluator.evaluate(self.population)
         while len(self.population) > self.population_size:
-            self.fitness_evaluator.remove(self.population, self._find_worst())
+            # self.fitness_evaluator.remove(self.population, self._find_worst())
+            ii = self._find_worst()
+            print('---' + str(self.population[ii].objectives))
+            self.fitness_evaluator.remove(self.population, ii)
 
-        if self._cur_step%self.mutation_every_n_steps==0:
+        for cand in self.population:
+            print('RSE: ' + str(cand.objectives))
+
+        if self._cur_step % self.mutation_every_n_steps == 0:
             print("local search whole population")
             self.population = [self.local_search.mutate(x) for x in self.population]
-        self._cur_step+=1
-
-        self.evaluate_all(self.population)
-
-
-
-        while len(self.population) > self.population_size:
-            self.fitness_evaluator.remove(self.population, self._find_worst())
+            self.fitness_evaluator.evaluate(self.population)
+            for cand in self.population:
+                print('RSE: ' + str(cand.objectives))
+        self._cur_step += 1
 
     def _find_worst(self):
         index = 0
@@ -128,3 +137,4 @@ class IBEA(AbstractGeneticAlgorithm):
                 index = i
 
         return index
+

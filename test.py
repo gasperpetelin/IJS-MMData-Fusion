@@ -4,6 +4,7 @@ import numpy as np
 from platypus import Problem, Real, AttributeDominance, fitness_key, DifferentialEvolution, TournamentSelector, PM, \
     UniformMutation
 
+from MatrixReShaper import Reshape
 from gdproblem import GDProblem
 from gradient_mutation import AdamLocalSearch, IBEA
 
@@ -14,12 +15,12 @@ n = 100
 k = 10
 
 p = GDProblem(m, n, k)
+reshaper = Reshape(m,n,k)
 
 
 def eval(x):
-    x = np.array(x)
-    G = x[0:n * k].reshape((n, k))
-    Ss = x[(n * k):].reshape((m, k, k))
+    G, Ss = reshaper.vec2mat(x)
+
     cost, gradG, gradS = p.cost_grad(G, Ss)
     print("eval_print", cost)
     return [cost]
