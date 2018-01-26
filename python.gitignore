@@ -1,3 +1,8 @@
+data/
+.idea/
+__pycache__/
+
+
 
 # Created by https://www.gitignore.io/api/python,pycharm
 
@@ -45,6 +50,8 @@ atlassian-ide-plugin.xml
 
 # Cursive Clojure plugin
 .idea/replstate.xml
+
+
 
 # Ruby plugin and RubyMine
 /.rakeTasks

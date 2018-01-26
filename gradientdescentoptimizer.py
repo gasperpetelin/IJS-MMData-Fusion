@@ -1,23 +1,18 @@
 import tensorflow as tf
 import numpy as np
 
-class GDProblem:
-    def __init__(self, R_data, lr=0.001, beta_1=0.9, beta_2=0.999, eps=1e-8):
+from regularization import NoneRegulatrization
+
+
+class GradientDescentOptimizer:
+    def __init__(self, R_data, lr=0.01, beta_1=0.9, beta_2=0.999, eps=1e-8, regularization=NoneRegulatrization()):
         # Save the parameters of Adam gradient descent
         self.lr, self.beta_1, self.beta_2, self.eps = lr, beta_1, beta_2, eps
-
-        # Import the matrices to numpy array R_data
-        #self.R_data=np.zeros((len(matrices),n,n))
-        #for i,mat in enumerate(matrices):
-        #    sparse_R=np.loadtxt(mat,delimiter=',',skiprows=1)
-        #    for j in range(sparse_R.shape[0]):
-        #        self.R_data[i,int(sparse_R[j,0])-1,int(sparse_R[j,1])-1]=sparse_R[j,2]
-
         self.R_data = R_data
 
         # Sum of square of Frobenius norm of matrices R_i
         self.fnR=np.sum(np.square(self.R_data))
-
+        
         # Definition of tensorflow computational graph
         # Tensor definitions
         self.R=tf.constant(self.R_data,name='R',dtype=tf.float64)
@@ -30,6 +25,7 @@ class GDProblem:
         self.t=tf.Variable(initial_value=0.0,name='t',dtype=tf.float64)
         self.Gp=tf.placeholder(tf.float64)
         self.Sp=tf.placeholder(tf.float64)
+
         # Initialization of tensors
         self.assign_G=tf.assign(self.G,self.Gp,validate_shape=False)
         self.assign_S=tf.assign(self.S,self.Sp,validate_shape=False)
@@ -39,17 +35,22 @@ class GDProblem:
         self.assign_Sv=tf.assign(self.Sv,tf.zeros_like(self.Sp),validate_shape=False)
         self.assign_t=tf.assign(self.t,0.0)
         self.new_cost=tf.group(self.assign_G,self.assign_S)
-        self.new_descent=tf.group(self.assign_G,self.assign_S,self.assign_Gm,self.assign_Gv, \
-                self.assign_Sm,self.assign_Sv,self.assign_t)
-
+        self.new_descent=tf.group(self.assign_G,self.assign_S,
+                                  self.assign_Gm,self.assign_Gv, \
+                                  self.assign_Sm,self.assign_Sv,self.assign_t)
         # Cost calculation
-        self.GS=tf.tensordot(tf.abs(self.G),tf.abs(self.S),axes=[[1],[1]])
+        self.G_abs = tf.abs(self.G)
+        self.S_abs = tf.abs(self.S)
+
+        self.GS=tf.tensordot(self.G_abs, self.S_abs, axes=[[1],[1]])
         self.GSGt=tf.tensordot(self.GS,tf.abs(self.G),axes=[[2],[1]])
         self.R_GSGt=tf.subtract(self.R,tf.transpose(self.GSGt,perm=[1,0,2]))
         self.cost=tf.divide(tf.reduce_sum(tf.pow(self.R_GSGt,2)),self.fnR)
 
+        self.regularized_cost = self.cost + regularization.add_regularization(self.R, self.G_abs, self.S_abs)
+
         # Step of gradient descent using Adam
-        self.g_G,self.g_S=tf.gradients(self.cost,[self.G,self.S])
+        self.g_G,self.g_S=tf.gradients(self.regularized_cost,[self.G,self.S])
         self.newt=tf.assign(self.t,self.t+1)
         with tf.control_dependencies([self.newt]):
             self.alpha_t=self.lr*tf.sqrt(1.-self.beta_2**self.t)/(1.-self.beta_1**self.t)
@@ -69,9 +70,11 @@ class GDProblem:
         self.sess.run(self.new_descent,feed_dict={self.Gp: npG, self.Sp: npS})
         for i in range(steps):
             self.sess.run(self.new_step)
+            #c=self.sess.run(self.cost)
+            #print('i='+str(i)+', c='+str(c))
         c=self.sess.run(self.cost)
         npG,npS=self.sess.run([self.G,self.S])
-        return c,npG,npS
+        return c,np.abs(npG),np.abs(npS)
 
     # Function that calculates the cost
     def calculate_cost(self,npG,npS):
