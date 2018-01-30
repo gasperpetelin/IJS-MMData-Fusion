@@ -1,4 +1,5 @@
 import numpy as np
+import pickle
 
 def read_matrices(directory, matrices, n):
     matrices = [directory + mat for mat in matrices]
@@ -12,5 +13,24 @@ def read_matrices(directory, matrices, n):
 def write_value(value, file_name):
     with open(file_name,'w') as time_file:
         print(value,file=time_file)
+
+def write_population_objectives(population, file_name):
+    objectives_number = len(population[0].objectives)
+    front = np.empty((len(population), objectives_number))
+    Gs = []
+    Ss = []
+    for i, sol in enumerate(population):
+        for o in range(objectives_number):
+            front[i, o] = sol.objectives[o]
+        #front[i, 1] = sol.objectives[1]
+        Gs.append(np.abs(sol.variables[0]))
+        Ss.append(np.abs(sol.variables[1]))
+    np.savetxt(file_name + '.csv', front, delimiter=',')
+    # Save the population
+    matrices_file = open(file_name + '.pickle', 'wb')
+    pickle.dump([Gs, Ss, front], matrices_file)
+    matrices_file.close()
+
+
 
 

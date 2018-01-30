@@ -1,24 +1,50 @@
 from __future__ import print_function
 
-import pickle
 import random
 import time
 
 import numpy as np
-from platypus import AttributeDominance, fitness_key, TournamentSelector, ParetoDominance
+from platypus import AttributeDominance, fitness_key, TournamentSelector, ParetoDominance, copy
 
-from evolutionary import MatrixGenerator, AdamLocalSearch, DeleteColumn, JoinMatrices, customIBEA, \
-    OrthogonalityEnforcer
+from evolutionary import RandomKMatrixGenerator, AdamLocalSearch, DeleteColumn, JoinMatrices, customIBEA, \
+    OrthogonalityEnforcer, ConstantKMatrixGenerator, NullMutation, NullCrossover, AdamLocalSearch_one_obj, \
+    GradientDescentJoin, JoinMatrices2
 from gradientdescentoptimizer import GradientDescentOptimizer
-
 # Optimization specifications
-from problems import Tri_Factorization
+from problems import Tri_Factorization, Tri_Factorization_obj_1
 from regularization import AngleRegulatrization
-from util import read_matrices, write_value
+from util import read_matrices, write_value, write_population_objectives
+from itertools import product
+
+def _gradientdescent(G, D):
+    k = G.shape[1]
+
+    Am = []
+    valid_Am = []
+    for m in range(0, k):
+        try:
+            vals = np.argwhere(G[:, m] > 0)
+        except:
+            print(G[:, m])
+        Am.append(vals)
+        if len(vals) != 0:
+            valid_Am.append(m)
+
+    S = np.zeros((k, k))
+
+    # Cartesian product between nonempty Am's
+    for x, y in product(valid_Am, repeat=2):
+        Ax_Ay_cross_product = list(product(Am[x], Am[y]))
+        denumerator = sum([D[i, j] * G[i, x] * G[j, y] for i, j in Ax_Ay_cross_product])
+        denominator = sum([G[i, x] ** 2 * G[j, y] ** 2 for i, j in Ax_Ay_cross_product])
+        S[x, y] = denumerator / denominator
+    return S
+
+
 
 m=5
 max_k=10
-population_size=20
+population_size=15
 initial_scale=0.2
 local_search_steps=100
 crossover_extent=1.0
@@ -31,8 +57,10 @@ nfes=population_size*expected_num_steps
 number_of_runs=1
 
 # Chose the optimization specifics
-crossover=JoinMatrices(extent=crossover_extent)
+#crossover=JoinMatrices2(extent=crossover_extent)
+#crossover = GradientDescentJoin()
 mutation=DeleteColumn(probability=mutation_probability)
+#mutation = NullMutation()
 selector=TournamentSelector(2,AttributeDominance(fitness_key,False)) # crossover selector
 constraint = OrthogonalityEnforcer()
 comparator=ParetoDominance() # used to find worst candidates
@@ -51,12 +79,16 @@ for n,directory,out_file_name,matrices,nfe in zip(ns,directories,out_file_names,
 
     Ri = read_matrices(directory, matrices, n)
     # Generate tensorflow computational graphs for RSE evaluation and gradient descent
-    p = GradientDescentOptimizer(Ri, regularization=AngleRegulatrization(0.0001))
+    p = GradientDescentOptimizer(Ri)#, regularization=AngleRegulatrization(1))
 
     problem = Tri_Factorization(p)
 
-    generator=MatrixGenerator(m,n,max_k, scale=initial_scale)
+    generator=RandomKMatrixGenerator(m, n, 10, scale=initial_scale)
+
+    #crossover = GradientDescentJoin(Ri)
     local_search=AdamLocalSearch(p, steps=local_search_steps)
+    crossover = JoinMatrices2(Ri, extent=crossover_extent)
+    #local_search = AdamLocalSearch_one_obj(p, steps=local_search_steps)
     
     cumulative_time=0.0
     cumulative_nfe=0.0
@@ -86,34 +118,38 @@ for n,directory,out_file_name,matrices,nfe in zip(ns,directories,out_file_names,
         cumulative_time=cumulative_time+elapsed_time
         cumulative_nfe+=algorithm.nfe
         print('time needed='+str(elapsed_time))
+
+        population = algorithm.result
+        new_p = constraint.evolve(population)
+
+        new_new_p = []
+        for sub in new_p:
+            G = sub.variables[0]
+            S = sub.variables[1]
+            p_copy = copy.deepcopy(sub)
+
+            S_new = np.zeros((Ri.shape[0], G.shape[1], G.shape[1]))
+            for i in range(Ri.shape[0]):
+                Rii = Ri[i, :, :]
+                S_new[i] = _gradientdescent(G, Rii)
+
+            p_copy.variables = [G, S_new]
+            new_new_p.append(p_copy)
+
+        algorithm.evaluate_all(new_new_p)
+
+
     
         # Save values of objectives and solutions
-        front=np.empty((population_size,2))
-        Gs=[]
-        Ss=[]
-        for i,sol in enumerate(algorithm.result):
-            front[i,0]=sol.objectives[0]
-            front[i,1]=sol.objectives[1]
-            Gs.append(np.abs(sol.variables[0]))
-            Ss.append(np.abs(sol.variables[1]))
-        np.savetxt(out_file_name+run_str+'.csv',front,delimiter=',')
-        # Save the population
-        matrices_file=open(out_file_name+run_str+'.pickle','wb')
-        pickle.dump([Gs,Ss,front],matrices_file)
-        matrices_file.close()
+        write_population_objectives(algorithm.result, out_file_name+run_str)
+        write_population_objectives(new_new_p, out_file_name+"_ortoghonal_" + run_str)
+
+
 
     # Close tensorflow session
     p.close()
 
     # Save mean time needed to perform one run and mean nfe
-
-
     write_value(cumulative_time/number_of_runs, out_file_name+'.time')
-    write_value(cumulative_nfe / number_of_runs, out_file_name + '.nfe')
+    write_value(cumulative_nfe/number_of_runs, out_file_name + '.nfe')
 
-    #cumulative_time/=number_of_runs
-    #with open(out_file_name+'.time','w') as time_file:
-    #    print(cumulative_time,file=time_file)
-    #cumulative_nfe/=number_of_runs
-    #with open(out_file_name+'.nfe','w') as nfe_file:
-    #    print(cumulative_nfe,file=nfe_file)

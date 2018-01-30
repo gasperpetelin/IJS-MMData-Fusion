@@ -70,11 +70,10 @@ class GradientDescentOptimizer:
         self.sess.run(self.new_descent,feed_dict={self.Gp: npG, self.Sp: npS})
         for i in range(steps):
             self.sess.run(self.new_step)
-            #c=self.sess.run(self.cost)
-            #print('i='+str(i)+', c='+str(c))
+            #c = self.sess.run(self.cost)
         c=self.sess.run(self.cost)
-        npG,npS=self.sess.run([self.G,self.S])
-        return c,np.abs(npG),np.abs(npS)
+        npG_new,npS_new=self.sess.run([self.G,self.S])
+        return c,np.abs(npG_new),np.abs(npS_new)
 
     # Function that calculates the cost
     def calculate_cost(self,npG,npS):
