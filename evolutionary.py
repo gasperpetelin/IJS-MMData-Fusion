@@ -5,6 +5,28 @@ from platypus import Mutation, copy, HypervolumeFitnessEvaluator, AttributeDomin
 
 from itertools import product
 
+class RandomKMatrixGenerator_masked(Generator):
+    def __init__(self, m, n, max_k, scale=1):
+        super(RandomKMatrixGenerator_masked, self).__init__()
+        self.m=m
+        self.n=n
+        self.max_k=max_k
+        self.scale=scale
+
+    def generate(self, problem):
+        solution = Solution(problem)
+        k = np.random.randint(self.max_k) + 1
+
+        mask = np.zeros((self.n,k))
+        for i in range(self.n):
+            mask[i, np.random.randint(k)] = 1
+
+        solution.variables[0]=self.scale*np.random.rand(self.n,k)
+        solution.variables[1]=self.scale*np.random.rand(self.m,k,k)
+        solution.variables[2]=mask
+        return solution
+
+
 
 class RandomKMatrixGenerator(Generator):
     def __init__(self,m,n,max_k,scale=1):
@@ -78,6 +100,26 @@ class AdamLocalSearch_one_obj(Mutation):
             child.evaluated=True
         return child
 
+class AdamLocalSearch_masked(Mutation):
+    def __init__(self, p, probability=1, steps=100):
+        super(AdamLocalSearch_masked, self).__init__()
+        self.probability = probability
+        self.p=p
+        self.steps=steps
+
+    def mutate(self,parent):
+        child = copy.deepcopy(parent)
+        if np.random.rand() <= self.probability:
+            G=child.variables[0]
+            S=child.variables[1]
+            mask = child.variables[2]
+            k=S.shape[1]
+            c,newG,newS=self.p.adam(G, mask ,S ,self.steps)
+            child.variables=[newG,newS, mask]
+            child.objectives=[c,k]
+            child.evaluated=True
+        return child
+
 class AdamLocalSearch(Mutation):
     def __init__(self, p, probability=1, steps=100):
         super(AdamLocalSearch, self).__init__()
@@ -103,6 +145,28 @@ class NullMutation(Mutation):
 
     def mutate(self, parent):
         return None
+
+
+class MaskedMutation(Mutation):
+    def __init__(self, mask_mutation_probability=1):
+        super(MaskedMutation,self).__init__()
+        self.mask_mutation_probability=mask_mutation_probability
+
+    def mutate(self,parent):
+        child = copy.deepcopy(parent)
+
+        mask = child.variables[2]
+        mask_shape_y = mask.shape[0]
+        mask_shape_x = mask.shape[1]
+        for i in range(mask_shape_y):
+            if np.random.rand()<= self.mask_mutation_probability:
+                #j = mask[i, :]
+                index = np.argmax(mask[i,:])
+                mask[i, index] = 0
+                mask[i, np.random.randint(mask_shape_x)] = 1
+
+        child.variables = [child.variables[0], child.variables[1], mask]
+        return child
 
 class DeleteColumn(Mutation):
     def __init__(self,probability=1, fill_empty_rows=False):
@@ -224,6 +288,46 @@ def _gradientdescent(G, D):
     return S
 
 
+class JoinMatrices2_masked(Variator):
+    def __init__(self, R, extent=1, matrix_similarity = 0.5):
+        super(JoinMatrices2_masked, self).__init__(2)
+        self.R = R
+        self.extent=extent
+        self.matrix_similarity = matrix_similarity
+
+    def evolve(self, parents):
+        G1=parents[0].variables[0]
+        G2=parents[1].variables[0]
+        mask1 = parents[0].variables[2]
+        mask2 = parents[1].variables[2]
+
+        max_k_shape = np.max([G1.shape[1], G2.shape[1]])
+        G = 0.001 * np.random.rand(G1.shape[0], max_k_shape)
+        mask = np.zeros((G1.shape[0], max_k_shape))
+
+        for i in range(G1.shape[0]):
+            if np.random.rand() < self.matrix_similarity:
+                G[i, :len(G1[i, :])] = G1[i, :]
+                mask[i, :len(mask1[i, :])] = mask1[i, :]
+            else:
+                G[i, :len(G2[i, :])] = G2[i, :]
+                mask[i, :len(mask2[i, :])] = mask2[i, :]
+
+
+        #int = 56
+
+        result=copy.deepcopy(parents[0])
+
+        S_new = np.zeros((self.R.shape[0], mask.shape[1], mask.shape[1]))
+        for i in range(self.R.shape[0]):
+            Rii = self.R[i, :, :]
+            f = mask*G
+            S_new[i] = _gradientdescent(f, Rii)
+
+        result.variables=[G, S_new, mask]
+        result.evaluated=False
+        return [result]
+
 class JoinMatrices2(Variator):
     def __init__(self, R, extent=1):
         super(JoinMatrices2,self).__init__(2)
@@ -311,7 +415,7 @@ class customIBEA(AbstractGeneticAlgorithm):
 
 
         # Force ortogonal TODO
-        self.population = self.constraint_enforcer.evolve(self.population)
+        # self.population = self.constraint_enforcer.evolve(self.population)
 
         while len(crossover_offspring) < self.crossover.extent*self.population_size:
             parents=self.selector.select(self.crossover.arity, self.population)
@@ -330,7 +434,7 @@ class customIBEA(AbstractGeneticAlgorithm):
 
         self.population=self.local_search.evolve(self.population)
 
-        self.population = self.constraint_enforcer.evolve(self.population)
+        # self.population = self.constraint_enforcer.evolve(self.population)
         self.evaluate_all(self.population)
         self.fitness_evaluator.evaluate(self.population)
 

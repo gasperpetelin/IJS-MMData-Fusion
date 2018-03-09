@@ -20,7 +20,7 @@ class Tensor(object):
         return value
 
 class Tri_Factorization(Problem):
-    def __init__(self, gd_optimizer):
+    def __init__(self, gd_optimizer, number_of_variables=2, number_of_objectives=2):
 
         # The objective function
         def obj_fun(cost_evaluator, x):
@@ -32,7 +32,27 @@ class Tri_Factorization(Problem):
 
         # Partial application of argument cost_evaluator
         obj_fun_partial = partial(obj_fun, gd_optimizer)
-        super().__init__(2,2,function=obj_fun_partial)
+        super().__init__(number_of_variables,number_of_objectives,function=obj_fun_partial)
+
+        #Set type of variables
+        self.types[:] = Tensor()
+        self.gdOptimizer = gd_optimizer
+
+class Tri_Factorization_Masked(Problem):
+    def __init__(self, gd_optimizer, number_of_variables=2, number_of_objectives=2):
+
+        # The objective function
+        def obj_fun(cost_evaluator, x):
+            G = x[0]
+            S = x[1]
+            mask = x[2]
+            k = S.shape[1]
+            cost = cost_evaluator.calculate_cost(G, mask, S)
+            return [cost, k]
+
+        # Partial application of argument cost_evaluator
+        obj_fun_partial = partial(obj_fun, gd_optimizer)
+        super().__init__(number_of_variables,number_of_objectives,function=obj_fun_partial)
 
         #Set type of variables
         self.types[:] = Tensor()
